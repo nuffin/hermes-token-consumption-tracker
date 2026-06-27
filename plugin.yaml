@@ -1,0 +1,6 @@
+name: token-consumption-tracker
+version: 1.0.0
+description: "Track token consumption per API request. Records usage to SQLite on every post_api_request hook and generates daily summary reports."
+author: "Hauzer S. Lee"
+hooks:
+  - post_api_request
