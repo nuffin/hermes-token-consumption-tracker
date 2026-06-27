@@ -1,6 +1,6 @@
 name: token-consumption-tracker
 version: 1.0.0
-description: "Track token consumption per API request. Records usage to SQLite on every post_api_request hook and generates daily summary reports."
+description: "Track token consumption per API request. Records usage to SQLite on every post_api_request hook and generates daily summary reports. Data dir configurable via observability.data_dir in Hermes config.yaml (default ~/.hermes/)."
 author: "Hauzer S. Lee"
 hooks:
   - post_api_request

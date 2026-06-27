@@ -22,7 +22,39 @@ logger = logging.getLogger(__name__)
 
 # ---- paths ------------------------------------------------------------------
 
-_HERMES_PERSONAL = Path.home() / ".hermes" / "personal"
+def _resolve_data_dir() -> Path:
+    """Resolve observability data directory from Hermes config.
+
+    Reads ``$HERMES_HOME/config.yaml``, extracts ``observability.data_dir``
+    (with per-plugin ``observability.token-consumption-tracker.data_dir``
+    override).  Falls back to ``~/.hermes/`` when config is missing or
+    unreadable.
+    """
+    hermes_home = os.environ.get("HERMES_HOME", "")
+    config_path = Path(hermes_home) / "config.yaml" if hermes_home else None
+
+    data_dir = None
+    if config_path and config_path.exists():
+        try:
+            import yaml
+            with open(config_path) as fh:
+                config = yaml.safe_load(fh) or {}
+            obs = config.get("observability", {})
+            # Per-plugin override takes priority
+            data_dir = (
+                obs.get("token-consumption-tracker", {}).get("data_dir")
+                or obs.get("data_dir")
+            )
+        except Exception:
+            pass
+
+    if not data_dir:
+        data_dir = "~/.hermes"
+
+    return Path(data_dir).expanduser()
+
+
+_HERMES_PERSONAL = _resolve_data_dir()
 _DB_PATH = _HERMES_PERSONAL / "token-usage.db"
 _REPORT_DIR = _HERMES_PERSONAL / "token-usage"
 

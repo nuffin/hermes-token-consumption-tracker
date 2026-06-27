@@ -24,7 +24,28 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-_DB = Path.home() / ".hermes" / "personal" / "token-usage.db"
+# Resolve DB path from Hermes config, fallback to ~/.hermes/token-usage.db
+def _resolve_db_path() -> Path:
+    hermes_home = os.environ.get("HERMES_HOME", "")
+    config_path = Path(hermes_home) / "config.yaml" if hermes_home else None
+    data_dir = None
+    if config_path and config_path.exists():
+        try:
+            import yaml
+            with open(config_path) as fh:
+                config = yaml.safe_load(fh) or {}
+            obs = config.get("observability", {})
+            data_dir = (
+                obs.get("token-consumption-tracker", {}).get("data_dir")
+                or obs.get("data_dir")
+            )
+        except Exception:
+            pass
+    if not data_dir:
+        data_dir = "~/.hermes"
+    return Path(data_dir).expanduser() / "token-usage.db"
+
+_DB = _resolve_db_path()
 
 
 def _conn() -> sqlite3.Connection:
