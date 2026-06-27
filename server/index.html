@@ -1,0 +1,218 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Token Usage Dashboard</title><style>
+:root{--bg:#0d1117;--bg-card:#161b22;--bg-hover:#1c2128;--border:#30363d;--text:#e6edf3;--dim:#8b949e;--accent:#58a6ff;--green:#3fb950;--orange:#d29922;--red:#f85149;--purple:#bc8cff}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font:14px/1.6 -apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.header{padding:16px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px;background:var(--bg-card);position:sticky;top:0;z-index:100}
+.header h1{font-size:18px;font-weight:600}
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--border);padding:0 16px;overflow-x:auto;background:var(--bg-card)}
+.tab{padding:10px 16px;cursor:pointer;color:var(--dim);font-size:13px;border-bottom:2px solid transparent;white-space:nowrap}
+.tab:hover{color:var(--text)}.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.content{padding:20px 24px;max-width:1200px;margin:0 auto}
+.tab-content{display:none}.tab-content.active{display:block}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;text-align:left}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
+.stat{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center}
+.stat .v{font-size:28px;font-weight:700}.stat .l{font-size:12px;color:var(--dim);margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 12px;border-bottom:2px solid var(--border);color:var(--dim);font-size:12px;white-space:nowrap}
+td{padding:8px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+tr:hover td{background:var(--bg-hover)}
+.barwrap{display:flex;align-items:center;gap:8px}
+.bar{background:var(--accent);height:20px;border-radius:4px;min-width:4px}
+input,select{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:6px;font-size:13px}
+button{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px}
+button:hover{background:var(--bg-hover)}.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.pg{display:flex;gap:8px;align-items:center;margin-top:12px}
+pre{background:#0d1117;padding:12px;border-radius:6px;font-size:12px;overflow:auto;max-height:400px;text-align:left}
+.loading{padding:40px;text-align:center;color:var(--dim)}.err{color:var(--red);padding:16px}
+summary{cursor:pointer;color:var(--accent);font-size:12px}
+.ds{padding:8px;background:var(--bg);border-radius:6px;font-size:12px;margin-top:8px;text-align:left}
+.ds b{color:var(--accent)}.tc{background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:4px 8px;margin:2px 0;font-size:12px}
+</style></head><body>
+<div class="header"><h1>⏱ Token Usage</h1><span class="subtitle" id="dbInfo"></span></div>
+<div class="tabs" id="tabs">
+<div class="tab active" data-tab="summary">Summary</div>
+<div class="tab" data-tab="hourly">Hourly</div>
+<div class="tab" data-tab="models">By Model</div>
+<div class="tab" data-tab="sessions">Sessions</div>
+<div class="tab" data-tab="browse">Browse</div>
+<div class="tab" data-tab="raw">Raw</div>
+</div>
+<div class="content">
+<div class="tab-content active" id="tab-summary"><div class="toolbar"><button class="active" onclick="S.m='today';loadSum()">Today</button>
+<button onclick="S.m='yesterday';loadSum()">Yesterday</button><button onclick="S.m='week';loadSum()">This Week</button>
+<input type="date" id="sumDate" onchange="S.m='date';loadSum()"></div><div id="sumC" class="loading">Loading...</div></div>
+<div class="tab-content" id="tab-hourly"><div class="toolbar"><input type="date" id="hrDate"><button onclick="loadHr()">Load</button>
+</div><div id="hrC" class="loading">Select date</div></div>
+<div class="tab-content" id="tab-models"><div class="toolbar"><input type="date" id="modDate"><button onclick="loadMod()">Load</button>
+</div><div id="modC" class="loading">Select date</div></div>
+<div class="tab-content" id="tab-sessions"><div id="sesC" class="loading">Loading...</div></div>
+<div class="tab-content" id="tab-browse"><div id="brC" class="loading">Loading...</div></div>
+<div class="tab-content" id="tab-raw"><div class="toolbar"><button class="active" onclick="rawMode='recent';rawPage=1;loadRaw()">Browse</button>
+<input type="number" id="rawId" placeholder="ID" style="width:80px" oninput="gid('rawViewBtn').disabled=!this.value">
+<button id="rawViewBtn" onclick="rawMode='id';loadRaw()" disabled>View</button></div><div id="rawC" class="loading">Loading...</div></div>
+</div>
+<script>
+function gid(x){return document.getElementById(x)}
+// Tab switching
+document.querySelectorAll('.tab').forEach(function(t){t.addEventListener('click',function(){
+document.querySelectorAll('.tab,.tab-content').forEach(function(e){e.classList.remove('active')});
+this.classList.add('active');var tab=this.dataset.tab;
+gid('tab-'+tab).classList.add('active');history.replaceState(null,'','?tab='+tab);
+})});
+(function(){var m=location.search.match(/[?&]tab=(\w+)/);if(m){
+var t=document.querySelector('.tab[data-tab="'+m[1]+'"]');if(t){
+document.querySelectorAll('.tab,.tab-content').forEach(function(e){e.classList.remove('active')});
+t.classList.add('active');gid('tab-'+t.dataset.tab).classList.add('active')}}})();
+
+function Fmt(n){return(n||0).toLocaleString()}
+function FmtB(b){b=b||0;if(b>=1e9)return(b/1e9).toFixed(1)+'B';if(b>=1e6)return(b/1e6).toFixed(1)+'M';if(b>=1e3)return(b/1e3).toFixed(0)+'K';return b+''}
+function FmtT(t){if(!t)return'-';var d=new Date(t.replace(' ','T')+'Z');return d.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+function Dur(s){if(!s)return'-';if(s<1)return(s*1000).toFixed(0)+'ms';return s.toFixed(1)+'s'}
+function safeParse(s){try{return JSON.parse(s)}catch(e){return{}}}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function formatJSON(s){if(!s)return'';var r='',d=0,i=0,inStr=false;while(i<s.length){var c=s[i];
+if(c=='"'&&(i==0||s[i-1]!='\\'))inStr=!inStr;
+if(!inStr){if(c=='{'||c=='['){r+=c+'\n';d++;for(var j=0;j<d;j++)r+='  ';i++;continue}
+if(c=='}'||c==']'){r+='\n';d--;for(var j=0;j<d;j++)r+='  ';r+=c;i++;continue}
+if(c==','){r+=c+'\n';for(var j=0;j<d;j++)r+='  ';i++;continue}
+if(c==':'){r+=c+' ';i++;continue}}
+r+=c;i++}return r}
+function sh(j){return j.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+.replace(/"([^"]+)":/g,'<span style="color:#79c0ff">"$1"</span>:').replace(/: (\d+\.?\d*)/g,': <span style="color:#79c0ff">$1</span>')
+.replace(/: "(.*?)"/g,': <span style="color:#a5d6ff">"$1"</span>').replace(/\b(true|false|null)\b/g,'<span style="color:#ff7b72">$1</span>')}
+
+async function api(p){var r=await fetch(p);if(!r.ok)throw Error(await r.text());return r.json()}
+// Init
+gid('sumDate').value=new Date().toISOString().slice(0,10);
+gid('hrDate').value=new Date().toISOString().slice(0,10);
+gid('modDate').value=new Date().toISOString().slice(0,10);
+api('/api/overview').then(function(d){gid('dbInfo').textContent=Fmt(d.total_requests)+' req / '+FmtB(d.total_tokens)+' total'});
+
+// Summary
+var S={m:'today'};
+async function loadSum(){var el=gid('sumC');el.innerHTML='<div class="loading">Loading...</div>';
+try{var url;if(S.m==='today')url='/api/summary?date=today';else if(S.m==='yesterday')url='/api/summary?date=yesterday';
+else if(S.m==='week'){renderWeek();return}else url='/api/summary?date='+gid('sumDate').value;
+var d=await api(url);renderSum(d,el)}catch(e){el.innerHTML='<div class="err">'+e.message+'</div>'}}
+function renderSum(d,el){var h='<div class="grid"><div class="stat"><div class="v" style="color:var(--green)">'+Fmt(d.requests)+'</div><div class="l">Requests / '+d.date+'</div></div>'
++'<div class="stat"><div class="v" style="color:var(--accent)">'+FmtB(d.total_tokens)+'</div><div class="l">Total Tokens</div></div>'
++'<div class="stat"><div class="v" style="color:var(--orange)">'+FmtB(d.input_tokens)+'</div><div class="l">Prompt</div></div>'
++'<div class="stat"><div class="v" style="color:var(--purple)">'+FmtB(d.output_tokens)+'</div><div class="l">Completion</div></div>'
++'<div class="stat"><div class="v">'+FmtB(d.cache_read)+'</div><div class="l">Cache Read</div></div>'
++'<div class="stat"><div class="v">'+FmtB(d.cache_write)+'</div><div class="l">Cache Write</div></div></div>';
+if(d.by_model&&d.by_model.length){h+='<div class="card"><table><tr><th>Model</th><th>Req</th><th>Input</th><th>Output</th><th>Total</th><th>CacheR</th><th>CacheW</th><th>Avg</th></tr>';
+d.by_model.forEach(function(m){h+='<tr><td>'+m.model+'</td><td>'+Fmt(m.requests)+'</td><td>'+FmtB(m.input_tokens)+'</td><td>'+FmtB(m.output_tokens)+'</td><td><b>'+FmtB(m.total_tokens)+'</b></td><td>'+FmtB(m.cache_read||0)+'</td><td>'+FmtB(m.cache_write||0)+'</td><td>'+Dur(m.avg_duration)+'</td></tr>'});
+h+='</table></div>'}el.innerHTML=h}
+
+async function renderWeek(){var el=gid('sumC');el.innerHTML='<div class="loading">Loading...</div>';
+try{var days=[],today=new Date();for(var i=0;i<7;i++){var d=new Date(today);d.setDate(d.getDate()-i);
+var r=await api('/api/summary?date='+d.toISOString().slice(0,10));days.unshift(r)}
+var tr=days.reduce(function(a,x){return a+x.requests},0);
+var tt=days.reduce(function(a,x){return a+x.total_tokens},0);
+var ti=days.reduce(function(a,x){return a+x.input_tokens},0);
+var to=days.reduce(function(a,x){return a+x.output_tokens},0);
+var h='<div class="grid"><div class="stat"><div class="v" style="color:var(--green)">'+Fmt(tr)+'</div><div class="l">Week Req</div></div>'
++'<div class="stat"><div class="v" style="color:var(--accent)">'+FmtB(tt)+'</div><div class="l">Week Tokens</div></div>'
++'<div class="stat"><div class="v" style="color:var(--orange)">'+FmtB(ti)+'</div><div class="l">Prompt</div></div>'
++'<div class="stat"><div class="v" style="color:var(--purple)">'+FmtB(to)+'</div><div class="l">Completion</div></div></div>';
+h+='<table><tr><th>Day</th><th>Req</th><th>Input</th><th>Output</th><th>Total</th><th>CacheR</th><th>CacheW</th></tr>';
+days.forEach(function(d){h+='<tr><td>'+d.date+'</td><td>'+Fmt(d.requests)+'</td><td>'+FmtB(d.input_tokens)+'</td><td>'+FmtB(d.output_tokens)+'</td><td><b>'+FmtB(d.total_tokens)+'</b></td><td>'+FmtB(d.cache_read)+'</td><td>'+FmtB(d.cache_write)+'</td></tr>'});
+h+='</table>';el.innerHTML=h}catch(e){el.innerHTML='<div class="err">'+e.message+'</div>'}}
+
+// Hourly
+async function loadHr(){var el=gid('hrC');el.innerHTML='<div class="loading">Loading...</div>';
+try{var date=gid('hrDate').value||new Date().toISOString().slice(0,10);
+var data=await api('/api/hourly?date='+date);var max=Math.max.apply(Math,data.map(function(h){return h.total_tokens}))||1;
+var h='<div class="card">24-Hour / '+date;for(var i=0;i<24;i++){var s=data.find(function(x){return x.hour===i});
+var r=s?s.requests:0;var t=s?s.total_tokens:0;
+h+='<div class="barwrap"><span style="min-width:20px;font-size:11px;color:var(--dim)">'+i+'</span>'
++'<div class="bar" style="width:'+(t/max*100).toFixed(0)+'%"></div>'
++'<span style="font-size:11px;color:var(--dim);min-width:90px">'+Fmt(r)+' req / '+FmtB(t)+'</span></div>'}
+h+='</div>';el.innerHTML=h}catch(e){el.innerHTML='<div class="err">'+e.message+'</div>'}}
+
+// Models
+async function loadMod(){var el=gid('modC');el.innerHTML='<div class="loading">Loading...</div>';
+try{var date=gid('modDate').value;var url=date?'/api/by-model?date='+date:'/api/by-model';
+var data=await api(url);if(!data.length){el.innerHTML='<div class="card" style="color:var(--dim)">No data</div>';return}
+var max=Math.max.apply(Math,data.map(function(m){return m.total_tokens}))||1;
+var h='<div class="card"><table><tr><th>Model</th><th>Req</th><th>Input</th><th>Output</th><th>Total</th><th>CacheR</th><th>CacheW</th><th>Avg</th><th></th></tr>';
+data.forEach(function(m){h+='<tr><td>'+m.model+'</td><td>'+Fmt(m.requests)+'</td><td>'+FmtB(m.input_tokens)+'</td><td>'+FmtB(m.output_tokens)+'</td><td><b>'+FmtB(m.total_tokens)+'</b></td><td>'+FmtB(m.cache_read||0)+'</td><td>'+FmtB(m.cache_write||0)+'</td><td>'+Dur(m.avg_duration)+'</td><td><div class="bar" style="width:'+(m.total_tokens/max*100).toFixed(0)+'%;height:12px"></div></td></tr>'});
+h+='</table></div>';el.innerHTML=h}catch(e){el.innerHTML='<div class="err">'+e.message+'</div>'}}
+
+// Sessions
+async function loadSes(){var el=gid('sesC');el.innerHTML='<div class="loading">Loading...</div>';
+try{var data=await api('/api/by-session?limit=30');
+var h='<div class="card"><table><tr><th>#</th><th>Session</th><th>Req</th><th>Input</th><th>Output</th><th>Total</th><th>First</th><th>Last</th></tr>';
+data.forEach(function(s,i){h+='<tr><td>'+(i+1)+'</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis" title="'+s.session_id+'">'+s.session_id+'</td>'
++'<td>'+Fmt(s.requests)+'</td><td>'+FmtB(s.input_tokens)+'</td><td>'+FmtB(s.output_tokens)+'</td><td><b>'+FmtB(s.total_tokens)+'</b></td>'
++'<td>'+FmtT(s.first_seen)+'</td><td>'+FmtT(s.last_seen)+'</td></tr>'});
+h+='</table></div>';el.innerHTML=h}catch(e){el.innerHTML='<div class="err">'+e.message+'</div>'}}
+
+// Browse
+var BP=1;
+async function loadBr(p){if(p)BP=p;var el=gid('brC');el.innerHTML='<div class="loading">Loading...</div>';
+try{var d=await api('/api/list?page='+BP+'&per_page=50');
+var h='<div class="card"><div style="margin-bottom:8px;color:var(--dim)">'+Fmt(d.total)+' records / Page '+d.page+'/'+d.total_pages+'</div>';
+h+='<table><tr><th>ID</th><th>Time</th><th>Model</th><th>In</th><th>Out</th><th>Total</th><th>Dur</th><th>Reason</th><th>WS</th></tr>';
+d.records.forEach(function(r){h+='<tr><td>'+r.id+'</td><td>'+FmtT(r.created_at)+'</td><td style="max-width:160px;overflow:hidden;text-overflow:ellipsis" title="'+r.model+'">'+r.model+'</td><td>'+Fmt(r.prompt_tokens)+'</td><td>'+Fmt(r.completion_tokens)+'</td><td><b>'+Fmt(r.total_tokens)+'</b></td><td>'+Dur(r.api_duration)+'</td><td>'+(r.finish_reason||'-')+'</td><td>'+(r.workspace||'-')+'</td></tr>'});
+h+='</table><div class="pg">';if(d.page>1)h+='<button onclick="loadBr('+(d.page-1)+')">←</button>';
+h+='<span style="color:var(--dim)">'+d.page+'/'+d.total_pages+'</span>';
+if(d.page<d.total_pages)h+='<button onclick="loadBr('+(d.page+1)+')">→</button>';
+h+='</div></div>';el.innerHTML=h}catch(e){el.innerHTML='<div class="err">'+e.message+'</div>'}}
+
+// Raw
+var rawPage=1,rawMode='recent';
+async function loadRaw(){var el=gid('rawC');el.innerHTML='<div class="loading">Loading...</div>';
+try{if(rawMode==='recent'){var d=await api('/api/list?page='+rawPage+'&per_page=10');
+if(!d.records||!d.records.length){el.innerHTML='<div class="card" style="color:var(--dim)">No records</div>';return}
+var h='';d.records.forEach(function(r){
+h+='<div class="card"><div style="margin-bottom:8px;font-size:13px;color:var(--dim)">#'+r.id+' / '+r.model+' / '+FmtT(r.created_at)
++'<br><b>In:</b> '+Fmt(r.prompt_tokens)+' <b>Out:</b> '+Fmt(r.completion_tokens)+' <b>Total:</b> '+Fmt(r.total_tokens)
++(r.finish_reason?' <b>Reason:</b> '+r.finish_reason:'')+(r.api_duration?' <b>Dur:</b> '+Dur(r.api_duration):'')
++'</div><details><summary>Show API Response (raw_usage)</summary><pre style="margin-top:8px">'+sh(JSON.stringify(safeParse(r.raw_usage||'{}'),null,2))+'</pre></details>'
++'<div id="cd_'+r.id+'"><div class="ds" style="color:var(--dim)">Loading detail...</div></div></div>';
+loadDetail(r.id)});
+h+='<div class="pg">';if(d.page>1)h+='<button onclick="rawPage='+(d.page-1)+';loadRaw()">←</button>';
+h+='<span style="color:var(--dim)">'+d.page+'/'+d.total_pages+'</span>';
+if(d.page<d.total_pages)h+='<button onclick="rawPage='+(d.page+1)+';loadRaw()">→</button>';
+h+='</div>';el.innerHTML=h}else{
+var id=gid('rawId').value;if(!id){el.innerHTML='<div class="err">Enter ID</div>';return}
+var d=await api('/api/raw-usage?id='+id);
+var h='<div class="card"><div style="margin-bottom:8px;color:var(--dim)">#'+d.id+' / '+d.model+' / '+FmtT(d.created_at)+'</div>'
++'<pre>'+sh(JSON.stringify(safeParse(d.raw_usage||'{}'),null,2))+'</pre></div>';
+loadDetailSingle(id,function(cd){el.innerHTML=h+renderDetail(cd)})}
+}catch(e){el.innerHTML='<div class="err">'+e.message+'</div>'}}
+
+function loadDetail(id){fetch('/api/call-detail?record_id='+id).then(function(r){return r.json()}).then(function(cd){
+var de=gid('cd_'+id);if(!de)return;de.innerHTML=renderDetail(cd)})['catch'](function(){var de=gid('cd_'+id);if(de)de.innerHTML='<span style="color:var(--dim)">No detail</span>'})}
+
+function loadDetailSingle(id,cb){fetch('/api/call-detail?record_id='+id).then(function(r){return r.json()}).then(cb)['catch'](function(){})}
+
+function renderDetail(cd){if(!cd||!cd.raw_response)return'<span style="color:var(--dim)">No call detail</span>'
+var rp=cd.raw_response,h='';
+// Request
+if(cd.raw_request){var req=typeof cd.raw_request==='string'?safeParse(cd.raw_request):cd.raw_request;
+if(req&&req.preview){var body;try{body=JSON.parse(req.preview)}catch(e){body=null}
+if(body&&body.body&&body.body.messages){
+h+='<div class="ds"><b>Request Messages ('+body.body.messages.length+'):</b></div>';
+body.body.messages.forEach(function(m){var c=(m.content||'').slice(0,300);
+h+='<div class="ds" style="margin-top:2px"><b>'+m.role+':</b> '+esc(c)+(m.content&&m.content.length>300?'...':'')+'</div>'});
+h+='<details style="margin-top:6px"><summary>Full Request JSON</summary><pre style="margin-top:4px;font-size:11px">'+sh(JSON.stringify(body,null,2))+'</pre></details>'}
+else{h+='<details style="margin-top:6px"><summary>Full Request JSON</summary><pre style="margin-top:4px;font-size:11px">'+sh(formatJSON(req.preview))+'</pre></details>'}}
+// Response
+if(rp.assistant_message){var am=rp.assistant_message;
+if(am.content)h+='<div class="ds"><b>Assistant:</b> '+esc(am.content.slice(0,500))+(am.content.length>500?'...':'')+'</div>';
+if(am.tool_calls&&am.tool_calls.length){
+h+='<details style="margin-top:6px"><summary><b>Tool Calls ('+am.tool_calls.length+')</b></summary>';
+am.tool_calls.forEach(function(tc){var fn=tc.name||(tc.function&&tc.function.name)||'?';
+var args=typeof tc.arguments==='string'?tc.arguments:(tc.input?JSON.stringify(tc.input):'');
+h+='<div class="tc" style="margin-top:4px"><b>'+fn+'</b><pre style="font-size:11px;margin-top:2px">'+esc(args.slice(0,500))+'</pre></div>'});
+h+='</details>'}}
+h+='<details style="margin-top:6px"><summary>Full Response JSON</summary><pre style="margin-top:4px;font-size:11px">'+sh(JSON.stringify(rp,null,2))+'</pre></details>';
+h+='<div class="ds" style="color:var(--dim)">Messages: '+(cd.message_count||'?')+' / Input tokens: '+(cd.approx_input_tokens||cd.prompt_tokens||'?')+' / Tool calls: '+(cd.assistant_tool_call_count||cd.tool_count||0)+'</div>';
+return h}}
+
+// Init
+loadSum();loadHr();loadMod();loadSes();loadBr(1);loadRaw();
+</script></body></html>

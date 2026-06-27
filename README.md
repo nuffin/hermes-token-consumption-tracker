@@ -35,3 +35,24 @@ python3 scripts/report.py              # yesterday
 python3 scripts/report.py 2026-06-17   # specific date
 python3 scripts/report.py --today      # today so far
 ```
+
+## Web Dashboard
+
+This repo includes a self-contained web dashboard in `server/`:
+
+```bash
+python3 server/server.py
+# → http://localhost:9090
+```
+
+No external dependencies — pure Python stdlib.  Set `TOKEN_USAGE_DB` env var
+to point at a custom DB path, or `TOKEN_SERVER_PORT` for a different port.
+
+See `server/SKILL.md` for API docs and the `token-consumption-web-server`
+Hermes skill.
+
+## Related Projects
+
+- **`hermes-token-consumption-tracker`** — Hermes plugin (this repo).
+  Both the plugin (`__init__.py`) and the web dashboard (`server/`) live here.
+  Install the plugin to record token data, start the dashboard to browse it.
