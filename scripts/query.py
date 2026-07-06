@@ -33,9 +33,8 @@ def _resolve_db_path() -> Path:
       2. ``OBSERVABILITY_DATA_DIR`` env var (generic)
       3. Per-profile config:  ``observability.token-consumption-tracker.data_dir``
       4. Per-profile config:  ``observability.default.data_dir``
-      5. Per-profile config:  ``observability.data_dir`` (legacy flat)
-      6. Global config: same structure as steps 3-5
-      7. Fallback:  ``~/.hermes``
+      5. Global config: same structure as steps 3-4
+      6. Fallback:  ``~/.hermes``
     """
     hermes_home = os.environ.get("HERMES_HOME", "").strip()
     profile_config_path = Path(hermes_home) / "config.yaml" if hermes_home else None
@@ -83,10 +82,6 @@ def _read_data_dir_from_config(config_path: Path | None) -> str | None:
             val = default_cfg.get("data_dir")
             if val and isinstance(val, str):
                 return val
-        # 3. Legacy flat
-        val = obs.get("data_dir")
-        if val and isinstance(val, str):
-            return val
     except Exception:
         pass
     return None
