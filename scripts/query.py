@@ -26,24 +26,70 @@ from pathlib import Path
 
 # Resolve DB path from Hermes config, fallback to ~/.hermes/token-usage.db
 def _resolve_db_path() -> Path:
-    hermes_home = os.environ.get("HERMES_HOME", "")
-    config_path = Path(hermes_home) / "config.yaml" if hermes_home else None
+    """Resolve token-usage.db path with multi-layer config priority.
+
+    Priority chain (highest to lowest):
+      1. ``TOKEN_CONSUMPTION_DATA_DIR`` env var (plugin-specific)
+      2. ``OBSERVABILITY_DATA_DIR`` env var (generic)
+      3. Per-profile config:  ``observability.token-consumption-tracker.data_dir``
+      4. Per-profile config:  ``observability.default.data_dir``
+      5. Per-profile config:  ``observability.data_dir`` (legacy flat)
+      6. Global config: same structure as steps 3-5
+      7. Fallback:  ``~/.hermes``
+    """
+    hermes_home = os.environ.get("HERMES_HOME", "").strip()
+    profile_config_path = Path(hermes_home) / "config.yaml" if hermes_home else None
+
     data_dir = None
-    if config_path and config_path.exists():
+    if profile_config_path:
+        data_dir = _read_data_dir_from_config(profile_config_path)
+
+    if not data_dir:
         try:
-            import yaml
-            with open(config_path) as fh:
-                config = yaml.safe_load(fh) or {}
-            obs = config.get("observability", {})
-            data_dir = (
-                obs.get("token-consumption-tracker", {}).get("data_dir")
-                or obs.get("data_dir")
-            )
-        except Exception:
+            from hermes_constants import get_default_hermes_root
+            global_config_path = get_default_hermes_root() / "config.yaml"
+            if (profile_config_path is None
+                    or global_config_path.resolve() != profile_config_path.resolve()):
+                data_dir = _read_data_dir_from_config(global_config_path)
+        except ImportError:
             pass
+
     if not data_dir:
         data_dir = "~/.hermes"
+
     return Path(data_dir).expanduser() / "token-usage.db"
+
+
+def _read_data_dir_from_config(config_path: Path | None) -> str | None:
+    """Read ``observability`` data_dir from a YAML config file."""
+    if not config_path or not config_path.exists():
+        return None
+    try:
+        import yaml
+        with open(config_path) as fh:
+            config = yaml.safe_load(fh) or {}
+        obs = config.get("observability")
+        if not obs or not isinstance(obs, dict):
+            return None
+        # 1. Plugin-specific override
+        plugin_cfg = obs.get("token-consumption-tracker")
+        if isinstance(plugin_cfg, dict):
+            val = plugin_cfg.get("data_dir")
+            if val and isinstance(val, str):
+                return val
+        # 2. All-plugins default
+        default_cfg = obs.get("default")
+        if isinstance(default_cfg, dict):
+            val = default_cfg.get("data_dir")
+            if val and isinstance(val, str):
+                return val
+        # 3. Legacy flat
+        val = obs.get("data_dir")
+        if val and isinstance(val, str):
+            return val
+    except Exception:
+        pass
+    return None
 
 _DB = _resolve_db_path()
 

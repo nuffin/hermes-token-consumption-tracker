@@ -1,2 +1,0 @@
-# Zero external dependencies - pure Python stdlib
-# See server/server.py

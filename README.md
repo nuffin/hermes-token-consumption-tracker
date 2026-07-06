@@ -1,58 +1,106 @@
 # hermes-token-consumption-tracker
 
-Hermes plugin: track token consumption per API request.
+Hermes Agent plugin — track token consumption per API request.
 
-Hooks into `post_api_request` to record per-request token usage (prompt_tokens,
-completion_tokens, total_tokens, model, provider, session_id, cache tokens)
-into a local SQLite database.
+Records usage (prompt/completion/total tokens, model, provider, cache stats,
+duration) to a local SQLite database on every `post_api_request` hook.
 
-## Data Location
+## Install
 
-Configured via `observability.data_dir` in Hermes `config.yaml`.
-Defaults to `~/.hermes/` (database: `<data_dir>/token-usage.db`).
-
-## Installation
+Symlink into your Hermes plugins directory:
 
 ```bash
-ln -sf /path/to/hermes-token-consumption-tracker ~/.hermes/plugins/token-consumption-tracker
-hermes plugins enable token-consumption-tracker
+ln -s "$PWD" ~/.hermes/plugins/token-consumption-tracker
 ```
 
-## Query Tools
+Or into a specific profile's plugins:
 
 ```bash
-python3 scripts/query.py latest 10          # latest 10 records
-python3 scripts/query.py summary --today     # today's summary
-python3 scripts/query.py model deepseek-v4   # filter by model
-python3 scripts/query.py date 2026-06-17     # filter by date
-python3 scripts/query.py export --all        # export JSONL
+ln -s "$PWD" ~/.hermes/profiles/<profile>/plugins/token-consumption-tracker
 ```
 
-## Report Generation
+Then enable in `config.yaml`:
 
-```bash
-python3 scripts/report.py              # yesterday
-python3 scripts/report.py 2026-06-17   # specific date
-python3 scripts/report.py --today      # today so far
+```yaml
+plugins:
+  enabled:
+    - token-consumption-tracker
 ```
 
-## Web Dashboard
+## Configuration
 
-This repo includes a self-contained web dashboard in `server/`:
+```yaml
+observability:
+  default:
+    data_dir: ~/.hermes/personal   # shared data dir for all observability plugins
+  token-consumption-tracker:
+    data_dir: ~/.hermes/custom     # plugin-specific override (optional)
+```
+
+Priority: `TOKEN_CONSUMPTION_DATA_DIR` env var → profile config → global
+config (`~/.hermes/config.yaml`) → `~/.hermes`.
+
+## Usage
+
+### Slash commands (in-session)
+
+- `/token list` — list saved daily reports
+- `/token show [yesterday|2026-06-17]` — generate & print report (default today)
+- `/token save [yesterday|2026-06-17]` — generate & save to file
+- `/token status` — DB location, size, record count
+
+### Standalone scripts
 
 ```bash
+# Daily report
+python3 scripts/report.py                 # yesterday
+python3 scripts/report.py --today         # today so far
+
+# Query DB
+python3 scripts/query.py latest 10
+python3 scripts/query.py summary --today
+python3 scripts/query.py model deepseek-v4-flash
+
+# Web dashboard
 python3 server/server.py
-# → http://localhost:9090
 ```
 
-No external dependencies — pure Python stdlib.  Set `TOKEN_USAGE_DB` env var
-to point at a custom DB path, or `TOKEN_SERVER_PORT` for a different port.
+### Cron (daily report)
 
-See `server/SKILL.md` for API docs and the `token-consumption-web-server`
-Hermes skill.
+```bash
+hermes cron create \
+  --name token-usage-daily-report \
+  --schedule "0 0 * * *" \
+  --script "$PWD/scripts/report.py" \
+  --no-agent
+```
 
-## Related Projects
+## Data
 
-- **`hermes-token-consumption-tracker`** — Hermes plugin (this repo).
-  Both the plugin (`__init__.py`) and the web dashboard (`server/`) live here.
-  Install the plugin to record token data, start the dashboard to browse it.
+| Path | Content |
+|------|---------|
+| `<data_dir>/token-usage.db` | SQLite database of all API requests |
+| `<data_dir>/token-usage/` | Daily markdown reports |
+
+## Schema
+
+```sql
+token_usage (
+    id               INTEGER PRIMARY KEY,
+    session_id       TEXT NOT NULL,
+    model            TEXT NOT NULL,
+    provider         TEXT NOT NULL,
+    prompt_tokens    INTEGER,
+    completion_tokens INTEGER,
+    total_tokens     INTEGER,
+    cache_read_tokens  INTEGER,
+    cache_write_tokens INTEGER,
+    api_duration     REAL,
+    finish_reason    TEXT,
+    profile          TEXT,
+    workspace        TEXT,
+    worker           TEXT,
+    created_at       TEXT NOT NULL,
+    raw_usage        TEXT
+)
+```

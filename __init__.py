@@ -22,32 +22,104 @@ logger = logging.getLogger(__name__)
 
 # ---- paths ------------------------------------------------------------------
 
-def _resolve_data_dir() -> Path:
-    """Resolve observability data directory from Hermes config.
+def _read_data_dir_from_observability_config(obs: Any) -> str | None:
+    """Extract ``data_dir`` from an ``observability`` config dict.
 
-    Reads ``$HERMES_HOME/config.yaml``, extracts ``observability.data_dir``
-    (with per-plugin ``observability.token-consumption-tracker.data_dir``
-    override).  Falls back to ``~/.hermes/`` when config is missing or
-    unreadable.
+    Recognises three structures (in priority order):
+      observability:
+        token-consumption-tracker:
+          data_dir: <path>          # 1. Plugin-specific (highest in-file)
+        default:
+          data_dir: <path>          # 2. All-plugins default
+        data_dir: <path>            # 3. Legacy flat format (backward compat)
+
+    Returns ``None`` when no ``data_dir`` is found.
     """
-    hermes_home = os.environ.get("HERMES_HOME", "")
-    config_path = Path(hermes_home) / "config.yaml" if hermes_home else None
+    if not obs or not isinstance(obs, dict):
+        return None
 
+    # 1. Plugin-specific override (new format)
+    plugin_cfg = obs.get("token-consumption-tracker")
+    if isinstance(plugin_cfg, dict):
+        val = plugin_cfg.get("data_dir")
+        if val and isinstance(val, str):
+            return val
+
+    # 2. All-plugins default (new format)
+    default_cfg = obs.get("default")
+    if isinstance(default_cfg, dict):
+        val = default_cfg.get("data_dir")
+        if val and isinstance(val, str):
+            return val
+
+    # 3. Backward compatibility: legacy flat ``data_dir`` string
+    val = obs.get("data_dir")
+    if val and isinstance(val, str):
+        return val
+
+    return None
+
+
+def _read_config_yaml(config_path: Path | None) -> dict:
+    """Safely read and parse a YAML config file. Returns empty dict on failure."""
+    if not config_path or not config_path.exists():
+        return {}
+    try:
+        import yaml
+        with open(config_path) as fh:
+            return yaml.safe_load(fh) or {}
+    except Exception:
+        return {}
+
+
+def _resolve_data_dir() -> Path:
+    """Resolve the observability data directory with multi-layer priority.
+
+    Priority chain (highest to lowest):
+      1. ``TOKEN_CONSUMPTION_DATA_DIR`` env var (plugin-specific)
+      2. ``OBSERVABILITY_DATA_DIR`` env var (generic)
+      3. Per-profile config:  ``observability.token-consumption-tracker.data_dir``
+      4. Per-profile config:  ``observability.default.data_dir``
+      5. Per-profile config:  ``observability.data_dir`` (legacy flat, backwards compat)
+      6. Global config (from hermes root): same structure as steps 3-5
+      7. Fallback:  ``~/.hermes``
+    """
+    # 1-2. Env var overrides
+    env_val = os.environ.get("TOKEN_CONSUMPTION_DATA_DIR", "").strip()
+    if env_val:
+        return Path(env_val).expanduser()
+    env_val = os.environ.get("OBSERVABILITY_DATA_DIR", "").strip()
+    if env_val:
+        return Path(env_val).expanduser()
+
+    # 3-5. Per-profile config (from ``HERMES_HOME``)
+    hermes_home = os.environ.get("HERMES_HOME", "").strip()
+    profile_config_path = Path(hermes_home) / "config.yaml" if hermes_home else None
     data_dir = None
-    if config_path and config_path.exists():
-        try:
-            import yaml
-            with open(config_path) as fh:
-                config = yaml.safe_load(fh) or {}
-            obs = config.get("observability", {})
-            # Per-plugin override takes priority
-            data_dir = (
-                obs.get("token-consumption-tracker", {}).get("data_dir")
-                or obs.get("data_dir")
-            )
-        except Exception:
-            pass
+    if profile_config_path:
+        config = _read_config_yaml(profile_config_path)
+        data_dir = _read_data_dir_from_observability_config(
+            config.get("observability")
+        )
 
+    # 6. Global config (from hermes root — shared by all profiles)
+    if not data_dir:
+        # Avoid re-reading the same file when ``HERMES_HOME`` *is* the root
+        try:
+            from hermes_constants import get_default_hermes_root
+        except ImportError:
+            get_default_hermes_root = None
+
+        if get_default_hermes_root is not None:
+            global_config_path = get_default_hermes_root() / "config.yaml"
+            if (profile_config_path is None
+                    or global_config_path.resolve() != profile_config_path.resolve()):
+                config = _read_config_yaml(global_config_path)
+                data_dir = _read_data_dir_from_observability_config(
+                    config.get("observability")
+                )
+
+    # 7. Hard-coded fallback
     if not data_dir:
         data_dir = "~/.hermes"
 
@@ -445,6 +517,129 @@ def save_report_to_file(date_str: str | None = None) -> str:
     return str(report_path)
 
 
+# ---- slash command -----------------------------------------------------------
+
+
+def _resolve_date(args: str, rest: str) -> tuple[str | None, str | None]:
+    """Parse date argument from rest of args.
+
+    Returns ``(date_str, error_msg)`` — one is None.
+    """
+    rest = rest.strip()
+    if not rest:
+        # Default: today
+        from datetime import datetime
+        return datetime.now().strftime("%Y-%m-%d"), None
+    if rest == "yesterday":
+        return None, None  # generate_report defaults to yesterday
+    if rest.startswith("20") and len(rest) >= 10:
+        return rest[:10], None
+    return None, (
+        f"无法识别的日期: {rest!r}\n"
+        "  用法: /token show [yesterday|2026-06-17]\n"
+    )
+
+
+def _handle_slash_command(args: str) -> str:
+    """Handle the ``/token`` slash command.
+
+    Subcommands:
+      /token list              — list saved reports
+      /token show [date]       — generate & print (default today)
+      /token save [date]       — generate & save to file (default today)
+      /token status            — DB location, size, record count
+    """
+    parts = args.strip().split(None, 1)
+    cmd = parts[0].lower() if parts else ""
+    rest = parts[1] if len(parts) > 1 else ""
+
+    if cmd == "list":
+        return _handle_token_list()
+
+    if cmd == "show":
+        date_str, err = _resolve_date(args, rest)
+        if err:
+            return err
+        report = generate_report(date_str)
+        if date_str is None:
+            from datetime import datetime, timedelta
+            date_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        return f"# Token Usage Report — {date_str} (即时生成，未保存)\n\n" + report
+
+    if cmd == "save":
+        date_str, err = _resolve_date(args, rest)
+        if err:
+            return err
+        path = save_report_to_file(date_str)
+        report = generate_report(date_str)
+        if date_str is None:
+            from datetime import datetime, timedelta
+            date_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        return f"报告已保存至: `{path}`\n\n" + report
+
+    if cmd == "status":
+        return _get_status()
+
+    # Fallback: help
+    return (
+        "用法:\n"
+        "  /token list              — 列出已保存的日报\n"
+        "  /token show [yesterday|2026-06-17]  — 生成并输出（默认今天）\n"
+        "  /token save [yesterday|2026-06-17]  — 生成并保存（默认今天）\n"
+        "  /token status            — 数据库状态\n"
+    )
+
+
+def _handle_token_list() -> str:
+    """List existing daily report files in the report directory."""
+    if not _REPORT_DIR.exists():
+        return "日报目录不存在。"
+
+    files = sorted(_REPORT_DIR.glob("20*.md"), reverse=True)
+    if not files:
+        return "暂无已保存的日报。"
+
+    lines = [f"已保存的日报 ({len(files)} 份):\n"]
+    for f in files:
+        name = f.stem
+        size = f.stat().st_size
+        size_str = f"{size / 1024:.1f} KB" if size > 1024 else f"{size} B"
+        lines.append(f"  {name}  ({size_str})")
+
+    return "\n".join(lines)
+
+
+def _get_status() -> str:
+    """Return DB status: path, size, record count."""
+    _init_db()
+    try:
+        size = _DB_PATH.stat().st_size
+        conn = sqlite3.connect(str(_DB_PATH))
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM token_usage").fetchone()[0]
+            earliest = conn.execute(
+                "SELECT MIN(created_at) FROM token_usage"
+            ).fetchone()[0] or "—"
+            latest = conn.execute(
+                "SELECT MAX(created_at) FROM token_usage"
+            ).fetchone()[0] or "—"
+        finally:
+            conn.close()
+    except Exception:
+        return f"无法读取数据库: {_DB_PATH}"
+
+    size_str = f"{size / 1024 / 1024:.1f} MB" if size > 1024 * 1024 else f"{size / 1024:.1f} KB"
+    return (
+        f"**Token 用量数据库**\n\n"
+        f"| 项目 | 值 |\n"
+        f"|------|-----|\n"
+        f"| 路径 | `{_DB_PATH}` |\n"
+        f"| 大小 | {size_str} |\n"
+        f"| 记录数 | {count:,} |\n"
+        f"| 最早记录 | {earliest} |\n"
+        f"| 最近记录 | {latest} |\n"
+    )
+
 # ---- plugin entry point -----------------------------------------------------
 
 
@@ -462,3 +657,11 @@ def register(ctx: Any) -> None:
 
     ctx.register_hook("post_api_request", _on_post_api_request)
     ctx.register_hook("on_session_end", _on_session_end)
+
+    # ── Slash command: /token ──
+    ctx.register_command(
+        name="token",
+        handler=_handle_slash_command,
+        description="Token usage: list/show/save/status",
+        args_hint="list | show [date] | save [date] | status",
+    )
