@@ -37,14 +37,14 @@ def _read_data_dir_from_observability_config(obs: Any) -> str | None:
     if not obs or not isinstance(obs, dict):
         return None
 
-    # 1. Plugin-specific override
+    # 1. Plugin-specific override (new format)
     plugin_cfg = obs.get("token-consumption-tracker")
     if isinstance(plugin_cfg, dict):
         val = plugin_cfg.get("data_dir")
         if val and isinstance(val, str):
             return val
 
-    # 2. All-plugins default
+    # 2. All-plugins default (new format)
     default_cfg = obs.get("default")
     if isinstance(default_cfg, dict):
         val = default_cfg.get("data_dir")
@@ -85,7 +85,7 @@ def _resolve_data_dir() -> Path:
     if env_val:
         return Path(env_val).expanduser()
 
-    # 3-4. Per-profile config (from ``HERMES_HOME``)
+    # 3-5. Per-profile config (from ``HERMES_HOME``)
     hermes_home = os.environ.get("HERMES_HOME", "").strip()
     profile_config_path = Path(hermes_home) / "config.yaml" if hermes_home else None
     data_dir = None
@@ -95,7 +95,7 @@ def _resolve_data_dir() -> Path:
             config.get("observability")
         )
 
-    # 5. Global config (from hermes root — shared by all profiles)
+    # 6. Global config (from hermes root — shared by all profiles)
     if not data_dir:
         # Avoid re-reading the same file when ``HERMES_HOME`` *is* the root
         try:
@@ -112,7 +112,7 @@ def _resolve_data_dir() -> Path:
                     config.get("observability")
                 )
 
-    # 6. Hard-coded fallback
+    # 7. Hard-coded fallback
     if not data_dir:
         data_dir = "~/.hermes"
 
@@ -423,29 +423,29 @@ def generate_report(date_str: str | None = None) -> str:
     lines.append("")
 
     # Summary header
-    lines.append("## 当日汇总")
+    lines.append("## Daily Summary")
     lines.append("")
     actual_input = total_prompt - total_cache_read - total_cache_write
-    lines.append(f"| 指标 | 数值 |")
+    lines.append(f"| Metric | Value |")
     lines.append(f"|------|------|")
-    lines.append(f"| API 请求数 | {total_count} |")
-    lines.append(f"| Input (新) | {actual_input:,} |")
+    lines.append(f"| API Requests | {total_count} |")
+    lines.append(f"| Input (New) | {actual_input:,} |")
     lines.append(f"| Cache Read | {total_cache_read:,} |")
     if total_cache_write:
         lines.append(f"| Cache Write | {total_cache_write:,} |")
-    lines.append(f"| Input (合计) | {total_prompt:,} |")
+    lines.append(f"| Input (Total) | {total_prompt:,} |")
     lines.append(f"| Output | {total_completion:,} |")
-    lines.append(f"| 总计 | {total_all:,} |")
+    lines.append(f"| Total | {total_all:,} |")
     if total_count > 0:
         avg_tokens = total_all // total_count
-        lines.append(f"| 平均/请求 | {avg_tokens:,} |")
+        lines.append(f"| Avg per Request | {avg_tokens:,} |")
     lines.append("")
 
     # By model
     if by_model:
-        lines.append("## 按模型统计")
+        lines.append("## By Model")
         lines.append("")
-        lines.append("| 模型 | 请求数 | Input | Output | 总计 | 平均耗时(s) |")
+        lines.append("| Model | Requests | Input | Output | Total | Avg Time(s) |")
         lines.append("|------|--------|-------|--------|------|------------|")
         for row in by_model:
             model_name, cnt, inp, out, tot, avg_dur = row
@@ -454,9 +454,9 @@ def generate_report(date_str: str | None = None) -> str:
 
     # By provider
     if by_provider:
-        lines.append("## 按 Provider 统计")
+        lines.append("## By Provider")
         lines.append("")
-        lines.append("| Provider | 请求数 | 总 Tokens |")
+        lines.append("| Provider | Requests | Total Tokens |")
         lines.append("|----------|--------|-----------|")
         for row in by_provider:
             prov, cnt, tot = row
@@ -465,9 +465,9 @@ def generate_report(date_str: str | None = None) -> str:
 
     # By session
     if by_session:
-        lines.append("## 按 Session 统计 (Top 10)")
+        lines.append("## By Session (Top 10)")
         lines.append("")
-        lines.append("| Session | 请求数 | Input | Output | 总计 |")
+        lines.append("| Session | Requests | Input | Output | Total |")
         lines.append("|---------|--------|-------|--------|------|")
         for row in by_session:
             sid, cnt, inp, out, tot = row
@@ -477,9 +477,9 @@ def generate_report(date_str: str | None = None) -> str:
 
     # Hourly
     if by_hour:
-        lines.append("## 小时级分布")
+        lines.append("## Hourly Distribution")
         lines.append("")
-        lines.append("| 时段 | 请求数 | Tokens |")
+        lines.append("| Hour | Requests | Tokens |")
         lines.append("|------|--------|--------|")
         for row in by_hour:
             hour, cnt, tot = row
@@ -487,7 +487,7 @@ def generate_report(date_str: str | None = None) -> str:
         lines.append("")
 
     lines.append("---")
-    lines.append(f"*由 token-consumption-tracker 生成于 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
+    lines.append(f"*Generated by token-consumption-tracker at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
     lines.append("")
 
     return "\n".join(lines)
@@ -528,8 +528,8 @@ def _resolve_date(args: str, rest: str) -> tuple[str | None, str | None]:
     if rest.startswith("20") and len(rest) >= 10:
         return rest[:10], None
     return None, (
-        f"无法识别的日期: {rest!r}\n"
-        "  用法: /token show [yesterday|2026-06-17]\n"
+        f"Unrecognized date: {rest!r}\n"
+        "  Usage: /token show [yesterday|2026-06-17]\n"
     )
 
 
@@ -557,7 +557,7 @@ def _handle_slash_command(args: str) -> str:
         if date_str is None:
             from datetime import datetime, timedelta
             date_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-        return f"# Token Usage Report — {date_str} (即时生成，未保存)\n\n" + report
+        return f"# Token Usage Report — {date_str} (generated on-the-fly, not saved)\n\n" + report
 
     if cmd == "save":
         date_str, err = _resolve_date(args, rest)
@@ -568,31 +568,31 @@ def _handle_slash_command(args: str) -> str:
         if date_str is None:
             from datetime import datetime, timedelta
             date_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-        return f"报告已保存至: `{path}`\n\n" + report
+        return f"Report saved to: `{path}`\n\n" + report
 
     if cmd == "status":
         return _get_status()
 
     # Fallback: help
     return (
-        "用法:\n"
-        "  /token list              — 列出已保存的日报\n"
-        "  /token show [yesterday|2026-06-17]  — 生成并输出（默认今天）\n"
-        "  /token save [yesterday|2026-06-17]  — 生成并保存（默认今天）\n"
-        "  /token status            — 数据库状态\n"
+        "Usage:\n"
+        "  /token list              — List saved reports\n"
+        "  /token show [yesterday|2026-06-17]  — Generate & display (default: today)\n"
+        "  /token save [yesterday|2026-06-17]  — Generate & save (default: today)\n"
+        "  /token status            — Database status\n"
     )
 
 
 def _handle_token_list() -> str:
     """List existing daily report files in the report directory."""
     if not _REPORT_DIR.exists():
-        return "日报目录不存在。"
+        return "Report directory does not exist."
 
     files = sorted(_REPORT_DIR.glob("20*.md"), reverse=True)
     if not files:
-        return "暂无已保存的日报。"
+        return "No saved reports."
 
-    lines = [f"已保存的日报 ({len(files)} 份):\n"]
+    lines = [f"Saved reports ({len(files)}):\n"]
     for f in files:
         name = f.stem
         size = f.stat().st_size
@@ -619,18 +619,18 @@ def _get_status() -> str:
         finally:
             conn.close()
     except Exception:
-        return f"无法读取数据库: {_DB_PATH}"
+        return f"Cannot read database: {_DB_PATH}"
 
     size_str = f"{size / 1024 / 1024:.1f} MB" if size > 1024 * 1024 else f"{size / 1024:.1f} KB"
     return (
-        f"**Token 用量数据库**\n\n"
-        f"| 项目 | 值 |\n"
+        f"**Token Usage Database**\n\n"
+        f"| Item | Value |\n"
         f"|------|-----|\n"
-        f"| 路径 | `{_DB_PATH}` |\n"
-        f"| 大小 | {size_str} |\n"
-        f"| 记录数 | {count:,} |\n"
-        f"| 最早记录 | {earliest} |\n"
-        f"| 最近记录 | {latest} |\n"
+        f"| Path | `{_DB_PATH}` |\n"
+        f"| Size | {size_str} |\n"
+        f"| Records | {count:,} |\n"
+        f"| Earliest | {earliest} |\n"
+        f"| Latest | {latest} |\n"
     )
 
 # ---- plugin entry point -----------------------------------------------------

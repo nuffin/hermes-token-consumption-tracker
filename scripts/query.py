@@ -2,13 +2,13 @@
 """Token usage DB query tool.
 
 Usage:
-    python3 scripts/query.py latest [N]          # 最近 N 条 (默认 10)
-    python3 scripts/query.py session <prefix>     # 按 session 前缀
-    python3 scripts/query.py model <name>         # 按模型名
-    python3 scripts/query.py date <from> [to]     # 按日期
-    python3 scripts/query.py summary [--today|<date>]  # 汇总
-    python3 scripts/query.py raw <N>              # 最近 N 条 raw_usage
-    python3 scripts/query.py raw --id <id>        # 指定 ID 的 raw_usage
+    python3 scripts/query.py latest [N]          # last N records (default 10)
+    python3 scripts/query.py session <prefix>     # by session prefix
+    python3 scripts/query.py model <name>         # by model name
+    python3 scripts/query.py date <from> [to]     # by date range
+    python3 scripts/query.py summary [--today|<date>]  # daily summary
+    python3 scripts/query.py raw <N>              # last N raw_usage
+    python3 scripts/query.py raw --id <id>        # raw_usage by ID
     python3 scripts/query.py delete --session <prefix> [--force]
     python3 scripts/query.py delete --before <date> [--force]
     python3 scripts/query.py delete --id <id> [--force]
@@ -26,65 +26,24 @@ from pathlib import Path
 
 # Resolve DB path from Hermes config, fallback to ~/.hermes/token-usage.db
 def _resolve_db_path() -> Path:
-    """Resolve token-usage.db path with multi-layer config priority.
-
-    Priority chain (highest to lowest):
-      1. ``TOKEN_CONSUMPTION_DATA_DIR`` env var (plugin-specific)
-      2. ``OBSERVABILITY_DATA_DIR`` env var (generic)
-      3. Per-profile config:  ``observability.token-consumption-tracker.data_dir``
-      4. Per-profile config:  ``observability.default.data_dir``
-      5. Global config: same structure as steps 3-4
-      6. Fallback:  ``~/.hermes``
-    """
-    hermes_home = os.environ.get("HERMES_HOME", "").strip()
-    profile_config_path = Path(hermes_home) / "config.yaml" if hermes_home else None
-
+    hermes_home = os.environ.get("HERMES_HOME", "")
+    config_path = Path(hermes_home) / "config.yaml" if hermes_home else None
     data_dir = None
-    if profile_config_path:
-        data_dir = _read_data_dir_from_config(profile_config_path)
-
-    if not data_dir:
+    if config_path and config_path.exists():
         try:
-            from hermes_constants import get_default_hermes_root
-            global_config_path = get_default_hermes_root() / "config.yaml"
-            if (profile_config_path is None
-                    or global_config_path.resolve() != profile_config_path.resolve()):
-                data_dir = _read_data_dir_from_config(global_config_path)
-        except ImportError:
+            import yaml
+            with open(config_path) as fh:
+                config = yaml.safe_load(fh) or {}
+            obs = config.get("observability", {})
+            data_dir = (
+                obs.get("token-consumption-tracker", {}).get("data_dir")
+                or obs.get("data_dir")
+            )
+        except Exception:
             pass
-
     if not data_dir:
         data_dir = "~/.hermes"
-
     return Path(data_dir).expanduser() / "token-usage.db"
-
-
-def _read_data_dir_from_config(config_path: Path | None) -> str | None:
-    """Read ``observability`` data_dir from a YAML config file."""
-    if not config_path or not config_path.exists():
-        return None
-    try:
-        import yaml
-        with open(config_path) as fh:
-            config = yaml.safe_load(fh) or {}
-        obs = config.get("observability")
-        if not obs or not isinstance(obs, dict):
-            return None
-        # 1. Plugin-specific override
-        plugin_cfg = obs.get("token-consumption-tracker")
-        if isinstance(plugin_cfg, dict):
-            val = plugin_cfg.get("data_dir")
-            if val and isinstance(val, str):
-                return val
-        # 2. All-plugins default
-        default_cfg = obs.get("default")
-        if isinstance(default_cfg, dict):
-            val = default_cfg.get("data_dir")
-            if val and isinstance(val, str):
-                return val
-    except Exception:
-        pass
-    return None
 
 _DB = _resolve_db_path()
 
@@ -174,17 +133,17 @@ def cmd_summary(args: argparse.Namespace) -> None:
     cnt, inp, out, tot, cache_r, cache_w = c.fetchone()
     actual_input = inp - cache_r - cache_w
 
-    print(f"# 汇总 — {date_str}")
-    print(f"请求数:        {cnt}")
-    print(f"Input (新):    {actual_input:,}")
+    print(f"# Summary — {date_str}")
+    print(f"Requests:      {cnt}")
+    print(f"Input (New):   {actual_input:,}")
     print(f"Cache Read:    {cache_r:,}")
     if cache_w:
         print(f"Cache Write:   {cache_w:,}")
-    print(f"Input (合计):  {inp:,}")
+    print(f"Input (Total): {inp:,}")
     print(f"Output:        {out:,}")
     print(f"Total:         {tot:,}")
     if cnt:
-        print(f"平均/请求:     {tot // cnt:,}")
+        print(f"Avg/Request:   {tot // cnt:,}")
     print()
 
     # by model
@@ -270,7 +229,7 @@ def cmd_delete(args: argparse.Namespace) -> None:
         params.append(args.id)
 
     if not where_clauses:
-        print("Error: 至少指定一个条件 (--session / --before / --id)")
+        print("Error: specify at least one filter (--session / --before / --id)")
         sys.exit(1)
 
     where = " AND ".join(where_clauses)
@@ -279,27 +238,27 @@ def cmd_delete(args: argparse.Namespace) -> None:
     count = cur.fetchone()[0]
 
     if count == 0:
-        print("没有匹配的记录")
+        print("No matching records.")
         conn.close()
         return
 
-    print(f"将删除 {count} 条记录")
-    print(f"条件: {' '.join(sys.argv[2:])}")
+    print(f"Will delete {count} record(s)")
+    print(f"Filter: {' '.join(sys.argv[2:])}")
 
     if not args.force:
         try:
-            confirm = input("确认删除？(y/N): ")
+            confirm = input("Confirm deletion? (y/N): ")
         except (EOFError, OSError):
             confirm = "n"
         if confirm.lower() != "y":
-            print("已取消")
+            print("Cancelled.")
             conn.close()
             return
 
     conn.execute(f"DELETE FROM token_usage WHERE {where}", params)
     conn.commit()
     conn.close()
-    print(f"已删除 {count} 条")
+    print(f"Deleted {count} record(s).")
 
 
 # ---- export
@@ -315,7 +274,7 @@ def cmd_export(args: argparse.Namespace) -> None:
             (f"{args.after} 00:00:00",),
         )
     else:
-        print("Error: 指定 --after <date> 或 --all")
+        print("Error: specify --after <date> or --all")
         conn.close()
         return
 
@@ -354,36 +313,36 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Token usage DB query tool")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("latest", help="最新 N 条")
-    p.add_argument("N", nargs="?", help="条数 (默认 10)")
+    p = sub.add_parser("latest", help="latest N records (default 10)")
+    p.add_argument("N", nargs="?", help="count (default 10)")
 
-    p = sub.add_parser("session", help="按 session 查")
+    p = sub.add_parser("session", help="query by session prefix")
     p.add_argument("prefix")
 
-    p = sub.add_parser("model", help="按模型查")
+    p = sub.add_parser("model", help="query by model name")
     p.add_argument("name")
 
-    p = sub.add_parser("date", help="按日期查")
+    p = sub.add_parser("date", help="query by date range")
     p.add_argument("from_date")
     p.add_argument("to_date", nargs="?")
 
-    p = sub.add_parser("summary", help="汇总")
-    p.add_argument("date", nargs="?", help="日期 YYYY-MM-DD")
-    p.add_argument("--today", action="store_true", help="今天")
+    p = sub.add_parser("summary", help="daily summary")
+    p.add_argument("date", nargs="?", help="date YYYY-MM-DD")
+    p.add_argument("--today", action="store_true", help="show today's summary")
 
-    p = sub.add_parser("raw", help="查看 raw_usage 原文")
-    p.add_argument("N", nargs="?", help="最近 N 条")
-    p.add_argument("--id", type=int, help="指定 ID")
+    p = sub.add_parser("raw", help="view raw_usage JSON")
+    p.add_argument("N", nargs="?", help="last N records (default 5)")
+    p.add_argument("--id", type=int, help="record ID")
 
-    p = sub.add_parser("delete", help="删除记录")
-    p.add_argument("--session", help="按 session 前缀")
-    p.add_argument("--before", help="某天之前 (YYYY-MM-DD)")
-    p.add_argument("--id", type=int, help="指定 ID")
-    p.add_argument("--force", action="store_true", help="跳过确认")
+    p = sub.add_parser("delete", help="delete records")
+    p.add_argument("--session", help="session prefix")
+    p.add_argument("--before", help="before date (YYYY-MM-DD)")
+    p.add_argument("--id", type=int, help="record ID")
+    p.add_argument("--force", action="store_true", help="skip confirmation")
 
-    p = sub.add_parser("export", help="导出 JSONL")
-    p.add_argument("--after", help="从某天开始")
-    p.add_argument("--all", action="store_true", help="全部导出")
+    p = sub.add_parser("export", help="export as JSONL")
+    p.add_argument("--after", help="from date (YYYY-MM-DD)")
+    p.add_argument("--all", action="store_true", help="export all records")
 
     args = parser.parse_args()
 

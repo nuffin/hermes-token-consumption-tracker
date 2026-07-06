@@ -40,11 +40,11 @@ def main() -> None:
     report = generate_report(date_str)
     lines = report.split("\n")
     for line in lines:
-        if line.startswith("# Token") or line.startswith("## 当日"):
+        if line.startswith("# Token") or line.startswith("## Daily"):
             print(line)
-        if "| 指标" in line or "|------" in line:
+        if "| Metric" in line or "|------" in line:
             print(line)
-        if "| 总 " in line or "| 平均" in line or "| API" in line:
+        if "| Total" in line or "| Avg" in line or "| API" in line:
             print(line)
         if line.startswith("---"):
             break
