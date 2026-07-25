@@ -60,3 +60,11 @@ python3 scripts/query.py summary --today
 ## License
 
 MIT
+
+
+## Repositories
+
+| Role | Repo | PyPI |
+|------|------|------|
+| Plugin code (this repo) | `hermes-token-consumption-tracker` | — |
+| Pip wrapper | `hermes-token-consumption-tracker-pip` | `hermes-token-consumption-tracker` |
