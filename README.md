@@ -66,5 +66,5 @@ MIT
 
 | Role | Repo | PyPI |
 |------|------|------|
-| Plugin code (this repo) | `hermes-token-consumption-tracker` | — |
-| Pip wrapper | `hermes-token-consumption-tracker-pip` | `hermes-token-consumption-tracker` |
+| Plugin code (this repo) | [hermes-token-consumption-tracker](https://github.com/nuffin/hermes-token-consumption-tracker) | — |
+| Pip wrapper | [hermes-token-consumption-tracker-pip](https://github.com/nuffin/hermes-token-consumption-tracker-pip) | [hermes-token-consumption-tracker](https://pypi.org/project/hermes-token-consumption-tracker/) |
