@@ -14,7 +14,7 @@ ln -sf $(pwd) ~/.hermes/plugins/token-consumption-tracker
 ### Via pip
 
 ```bash
-pip install hermes-token-consumption-tracker-pip
+pip install hermes-token-consumption-tracker
 ```
 
 Enable the plugin in your Hermes `config.yaml`:
