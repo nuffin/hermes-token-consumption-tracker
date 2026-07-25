@@ -5,9 +5,16 @@ generates daily usage reports.
 
 ## Installation
 
+### Via symlink (recommended for development)
+
 ```bash
-git clone https://github.com/nuffin/hermes-token-consumption-tracker.git
-cp -r hermes-token-consumption-tracker ~/.hermes/plugins/token-consumption-tracker
+ln -sf $(pwd) ~/.hermes/plugins/token-consumption-tracker
+```
+
+### Via pip
+
+```bash
+pip install hermes-token-consumption-tracker-pip
 ```
 
 Enable the plugin in your Hermes `config.yaml`:
