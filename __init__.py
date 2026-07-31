@@ -356,6 +356,8 @@ def generate_report(date_str: str | None = None) -> str:
                    SUM(prompt_tokens),
                    SUM(completion_tokens),
                    SUM(total_tokens),
+                   SUM(cache_read_tokens),
+                   SUM(cache_write_tokens),
                    ROUND(AVG(api_duration), 2)
             FROM token_usage
             WHERE created_at >= ? AND created_at < ?
@@ -373,7 +375,9 @@ def generate_report(date_str: str | None = None) -> str:
                    COUNT(*),
                    SUM(prompt_tokens),
                    SUM(completion_tokens),
-                   SUM(total_tokens)
+                   SUM(total_tokens),
+                   SUM(cache_read_tokens),
+                   SUM(cache_write_tokens)
             FROM token_usage
             WHERE created_at >= ? AND created_at < ?
             GROUP BY session_id
@@ -445,11 +449,12 @@ def generate_report(date_str: str | None = None) -> str:
     if by_model:
         lines.append("## By Model")
         lines.append("")
-        lines.append("| Model | Requests | Input | Output | Total | Avg Time(s) |")
-        lines.append("|------|--------|-------|--------|------|------------|")
+        lines.append("| Model | Requests | Input (New) | Cache Read | Cache Write | Output | Total | Avg Time(s) |")
+        lines.append("|------|--------|-------------|------------|-------------|--------|------|------------|")
         for row in by_model:
-            model_name, cnt, inp, out, tot, avg_dur = row
-            lines.append(f"| {model_name} | {cnt} | {inp:,} | {out:,} | {tot:,} | {avg_dur} |")
+            model_name, cnt, inp, out, tot, cache_read, cache_write, avg_dur = row
+            new_input = (inp or 0) - (cache_read or 0) - (cache_write or 0)
+            lines.append(f"| {model_name} | {cnt} | {new_input:,} | {cache_read or 0:,} | {cache_write or 0:,} | {out:,} | {tot:,} | {avg_dur} |")
         lines.append("")
 
     # By provider
@@ -467,12 +472,13 @@ def generate_report(date_str: str | None = None) -> str:
     if by_session:
         lines.append("## By Session (Top 10)")
         lines.append("")
-        lines.append("| Session | Requests | Input | Output | Total |")
-        lines.append("|---------|--------|-------|--------|------|")
+        lines.append("| Session | Requests | Input (New) | Cache Read | Cache Write | Output | Total |")
+        lines.append("|---------|--------|-------------|------------|-------------|--------|------|")
         for row in by_session:
-            sid, cnt, inp, out, tot = row
+            sid, cnt, inp, out, tot, cache_read, cache_write = row
             short_sid = sid[:16] + "..." if len(sid) > 20 else sid
-            lines.append(f"| {short_sid} | {cnt} | {inp:,} | {out:,} | {tot:,} |")
+            new_input = (inp or 0) - (cache_read or 0) - (cache_write or 0)
+            lines.append(f"| {short_sid} | {cnt} | {new_input:,} | {cache_read or 0:,} | {cache_write or 0:,} | {out:,} | {tot:,} |")
         lines.append("")
 
     # Hourly
