@@ -4,3 +4,5 @@ description: "Track token consumption per API request. Records usage to SQLite o
 author: "Hauzer S. Lee"
 hooks:
   - post_api_request
+  - on_session_end
+  - on_session_finalize

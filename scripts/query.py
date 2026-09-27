@@ -24,7 +24,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-# Resolve DB path from Hermes config, fallback to ~/.hermes/token-usage.db
+# Resolve DB path from Hermes config, fallback to ~/.hermes/personal/token-usage.db
 def _resolve_db_path() -> Path:
     hermes_home = os.environ.get("HERMES_HOME", "")
     config_path = Path(hermes_home) / "config.yaml" if hermes_home else None
@@ -42,7 +42,7 @@ def _resolve_db_path() -> Path:
         except Exception:
             pass
     if not data_dir:
-        data_dir = "~/.hermes"
+        data_dir = "~/.hermes/personal"
     return Path(data_dir).expanduser() / "token-usage.db"
 
 _DB = _resolve_db_path()

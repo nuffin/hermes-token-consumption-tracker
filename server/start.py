@@ -27,7 +27,7 @@ def main() -> None:
     cmd = [sys.executable, str(_SERVER_PY)] + args
 
     print(f"Starting token usage web server...")
-    print(f"  DB:        {os.environ.get('TOKEN_USAGE_DB', '~/.hermes/token-usage.db')}")
+    print(f"  DB:        {os.environ.get('TOKEN_USAGE_DB', '~/.hermes/personal/token-usage.db')}")
     print(f"  Port:      {os.environ.get('TOKEN_SERVER_PORT', '9090')}")
     print(f"  Dashboard: http://localhost:{os.environ.get('TOKEN_SERVER_PORT', '9090')}")
     print()

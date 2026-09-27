@@ -656,6 +656,7 @@ def register(ctx: Any) -> None:
 
     ctx.register_hook("post_api_request", _on_post_api_request)
     ctx.register_hook("on_session_end", _on_session_end)
+    ctx.register_hook("on_session_finalize", _on_session_end)
 
     # ── Slash command: /token ──
     ctx.register_command(

@@ -22,7 +22,7 @@ from pathlib import Path
 
 _HERE = Path(__file__).parent.resolve()
 DB_PATH = os.environ.get("TOKEN_USAGE_DB",
-                         str(Path.home() / ".hermes" / "token-usage.db"))
+                         str(Path.home() / ".hermes" / "personal" / "token-usage.db"))
 PORT = int(os.environ.get("TOKEN_SERVER_PORT", "9090"))
 STATIC_DIR = str(_HERE)
 

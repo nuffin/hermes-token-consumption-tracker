@@ -26,7 +26,7 @@ python3 server/server.py [--port 9090]
 
 | Env Variable | Default | Description |
 |---|---|---|
-| `TOKEN_USAGE_DB` | `~/.hermes/token-usage.db` | Path to the token-usage SQLite DB |
+| `TOKEN_USAGE_DB` | `~/.hermes/personal/token-usage.db` | Path to the token-usage SQLite DB |
 | `TOKEN_SERVER_PORT` | `9090` | HTTP server port |
 
 ## API Endpoints
