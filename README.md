@@ -45,6 +45,8 @@ In-session slash commands:
 - `/token list` — list saved daily reports
 - `/token show [date]` — generate and print a report (default: today)
 - `/token save [date]` — generate and save to file
+- `/token week [date] [--offset N] [--mono] [--width N]` — weekly report
+  (charts + summary; Monday-start weeks)
 - `/token status` — database path, size, record count
 
 Standalone scripts:

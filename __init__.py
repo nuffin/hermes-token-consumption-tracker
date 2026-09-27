@@ -9,12 +9,17 @@ Provides ``generate_report()`` for daily/weekly summary generation.
 
 from __future__ import annotations
 
+import argparse
 import datetime
+import importlib.util
+import io
 import json
 import logging
 import os
 import sqlite3
+import sys
 import threading
+from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
@@ -539,6 +544,79 @@ def _resolve_date(args: str, rest: str) -> tuple[str | None, str | None]:
     )
 
 
+def _run_week_report(rest: str) -> str:
+    """Run ``scripts/query.py week`` in-process and return its output.
+
+    Loads the query module lazily (hyphenated dir name → importlib) and
+    points its DB resolution at this plugin's ``_DB_PATH`` so the slash
+    command and ``/token status`` always read the same database.
+    Accepts optional ``<date>``, ``--offset N``, ``--mono``, ``--width N``.
+    """
+    script = Path(__file__).resolve().parent / "scripts" / "query.py"
+    if not script.exists():
+        return f"query.py not found: {script}"
+
+    spec = importlib.util.spec_from_file_location(
+        "tct_query_week_module", script
+    )
+    if spec is None or spec.loader is None:
+        return f"Cannot load {script}"
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:  # pragma: no cover - defensive
+        return f"Failed to load query.py: {exc}"
+
+    # Both DBs resolve from the same config source, but pin explicitly so
+    # /token week and /token status can never disagree.
+    module._DB = _DB_PATH
+
+    tokens = rest.split()
+    date_arg = None
+    offset = 0
+    mono = False
+    width = 40
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t == "--offset":
+            i += 1
+            if i >= len(tokens):
+                return "Usage: /token week [date] [--offset N] [--mono] [--width N]"
+            try:
+                offset = int(tokens[i])
+            except ValueError:
+                return f"Invalid --offset value: {tokens[i]!r}"
+        elif t == "--width":
+            i += 1
+            if i >= len(tokens):
+                return "Usage: /token week [date] [--offset N] [--mono] [--width N]"
+            try:
+                width = int(tokens[i])
+            except ValueError:
+                return f"Invalid --width value: {tokens[i]!r}"
+        elif t == "--mono":
+            mono = True
+        elif t.startswith("20") and len(t) >= 10:
+            date_arg = t[:10]
+        else:
+            return (
+                "Unrecognized argument.\n"
+                "  Usage: /token week [date] [--offset N] [--mono] [--width N]"
+            )
+        i += 1
+
+    ns = argparse.Namespace(date=date_arg, offset=offset, mono=mono, width=width)
+    buf = io.StringIO()
+    try:
+        with redirect_stdout(buf):
+            module.cmd_week(ns)
+    except Exception as exc:
+        return f"Week report failed: {exc}"
+    return buf.getvalue().rstrip()
+
+
 def _handle_slash_command(args: str) -> str:
     """Handle the ``/token`` slash command.
 
@@ -546,6 +624,7 @@ def _handle_slash_command(args: str) -> str:
       /token list              — list saved reports
       /token show [date]       — generate & print (default today)
       /token save [date]       — generate & save to file (default today)
+      /token week [...]        — weekly report charts + summary
       /token status            — DB location, size, record count
     """
     parts = args.strip().split(None, 1)
@@ -554,6 +633,9 @@ def _handle_slash_command(args: str) -> str:
 
     if cmd == "list":
         return _handle_token_list()
+
+    if cmd == "week":
+        return _run_week_report(rest)
 
     if cmd == "show":
         date_str, err = _resolve_date(args, rest)
@@ -585,6 +667,7 @@ def _handle_slash_command(args: str) -> str:
         "  /token list              — List saved reports\n"
         "  /token show [yesterday|2026-06-17]  — Generate & display (default: today)\n"
         "  /token save [yesterday|2026-06-17]  — Generate & save (default: today)\n"
+        "  /token week [date] [--offset N] [--mono] [--width N] — Weekly charts & summary\n"
         "  /token status            — Database status\n"
     )
 
@@ -662,6 +745,6 @@ def register(ctx: Any) -> None:
     ctx.register_command(
         name="token",
         handler=_handle_slash_command,
-        description="Token usage: list/show/save/status",
-        args_hint="list | show [date] | save [date] | status",
+        description="Token usage: list/show/save/week/status",
+        args_hint="list | show [date] | save [date] | week [date|options] | status",
     )

@@ -212,3 +212,65 @@ def test_allocate_run_minimum_one_cell():
     # zero-width and zero-total guards
     assert Q._allocate_run([1, 2, 3], 0) == [0, 0, 0]
     assert Q._allocate_run([0, 0, 0], 10) == [0, 0, 0]
+
+
+# ---- /token week slash command -------------------------------------------------
+
+
+def _load_plugin_module():
+    spec = importlib.util.spec_from_file_location(
+        "tct_plugin_test_module", PLUGIN_ROOT / "__init__.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_slash_command_week(tmp_path, monkeypatch):
+    plugin = _load_plugin_module()
+    # build a real temp DB file with one seeded week
+    db_path = tmp_path / "token-usage.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(
+        """
+        CREATE TABLE token_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL, turn_id TEXT, api_request_id TEXT,
+            model TEXT NOT NULL, provider TEXT NOT NULL,
+            prompt_tokens INTEGER DEFAULT 0, completion_tokens INTEGER DEFAULT 0,
+            cache_read_tokens INTEGER DEFAULT 0, cache_write_tokens INTEGER DEFAULT 0,
+            workspace TEXT DEFAULT '', worker TEXT DEFAULT '',
+            total_tokens INTEGER DEFAULT 0, api_duration REAL DEFAULT 0.0,
+            finish_reason TEXT, created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO token_usage (session_id, model, provider, prompt_tokens,"
+        " completion_tokens, cache_read_tokens, total_tokens, created_at)"
+        " VALUES ('s', 'glm-5.3', 't', 100000, 5000, 90000, 105000, '2026-09-23 10:00:00')"
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(plugin, "_DB_PATH", db_path)
+
+    out = plugin._handle_slash_command("week 2026-09-23 --mono")
+    assert "Week 2026-09-21 .. 2026-09-27" in out
+    assert "09-23 周三" in out
+    assert "glm-5.3" in out
+    assert "\033[38;2;110;155;255m" not in out  # mono requested → no truecolor
+
+    # default (this week) and error paths
+    out2 = plugin._handle_slash_command("week --offset abc")
+    assert "Invalid --offset value" in out2
+    out3 = plugin._handle_slash_command("week bogusarg")
+    assert "Unrecognized argument" in out3
+
+
+def test_slash_command_help_lists_week():
+    plugin = _load_plugin_module()
+    help_text = plugin._handle_slash_command("")
+    assert "/token week" in help_text
